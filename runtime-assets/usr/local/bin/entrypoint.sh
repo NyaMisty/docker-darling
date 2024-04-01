@@ -3,21 +3,23 @@
 # setuid root on darling binary
 sudo chmod 4755 /usr/local/bin/darling
 
-# Setup kernel module paths
-sudo mkdir -p /lib/modules/"$(uname -r)"
-sudo ln -s /usr/src/linux-headers-"$(uname -r)" /lib/modules/"$(uname -r)"/build
+if false; then # disable kernel stuff as darling does not use LKM now
+	# Setup kernel module paths
+	sudo mkdir -p /lib/modules/"$(uname -r)"
+	sudo ln -s /usr/src/linux-headers-"$(uname -r)" /lib/modules/"$(uname -r)"/build
 
-# Build kernel module
-cd /usr/local/src/darling/build || exit 1
-sudo make lkm -j"$(nproc)"
-sudo make lkm_install
-sudo xz -d /lib/modules/"$(uname -r)"/extra/darling-mach.ko.xz
+	# Build kernel module
+	cd /usr/local/src/darling/build || exit 1
+	sudo make lkm -j"$(nproc)"
+	sudo make lkm_install
+	sudo xz -d /lib/modules/"$(uname -r)"/extra/darling-mach.ko.xz
 
-# Try to unload any existing darling modules
-sudo rmmod darling-mach.ko
+	# Try to unload any existing darling modules
+	sudo rmmod darling-mach.ko
 
-# Load new module
-sudo insmod /lib/modules/"$(uname -r)"/extra/darling-mach.ko
+	# Load new module
+	sudo insmod /lib/modules/"$(uname -r)"/extra/darling-mach.ko
+fi
 
 # Work around existing overlayfs
 sudo mount -t tmpfs tmpfs /home/darling
