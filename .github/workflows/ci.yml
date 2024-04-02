@@ -1,0 +1,91 @@
+name: Docker-Darling CI
+on: 
+  push:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+# env:
+#   ### Select one image format here
+#   # ghcr.io
+#   IMAGE_NAME: ghcr.io/username/${{ github.repository }}
+#   # DockerHub
+#   IMAGE_NAME: username/${{ github.repository }}
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      -
+        name: Generate timestamp
+        id: timestamp
+        run: |
+          TIMESTAMP="$(date +"%Y%m%d")"
+          echo "Timestamp: ${TIMESTAMP}"
+          echo "value=${TIMESTAMP}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+        with:
+          driver-opts: env.BUILDKIT_STEP_LOG_MAX_SIZE=104857600
+
+      # move /var/lib/docker/overlay2 to /mnt/dockermnt so that it won't "no space left"
+      # currently building it requires 24GB diskspace
+      - name: Move Docker Library Path
+        run: |
+          docker system prune -a --volumes -f
+          sudo mkdir /mnt/dockermnt
+          sudo mount -o bind /mnt/dockermnt /var/lib/docker/overlay2
+          sudo mkdir /var/lib/docker/overlay2/l
+
+
+      - name: Log in to the GHCR
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Login to the DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      
+      - name: Get Darling Commit
+        id: darling-commit
+        run: |
+          COMMIT_SHA=$(curl -H 'Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' https://api.github.com/repos/darlinghq/darling/commits/master | jq -r '.sha')
+          echo "sha=${COMMIT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "shortsha=${COMMIT_SHA:0:8}" >> "$GITHUB_OUTPUT"
+
+      # - name: Extract metadata (tags, labels) for Docker
+      #   id: meta
+      #   uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
+      #   with:
+      #     images: ${{ env.IMAGE_NAME }}
+      #     flavor: |
+      #       latest=true
+
+      - name: Manually Build Docker
+        run: |
+          DARLING_GIT_REF=${{ steps.darling-commit.outputs.sha }} make
+
+      - name: Push Docker to DockerHub
+        run: |
+          docker tag nyamisty/darling:latest nyamisty/darling:${{ steps.darling-commit.outputs.shortsha }}
+          docker tag nyamisty/darling:latest nyamisty/darling:${{ steps.timestamp.outputs.value }}-${{ steps.darling-commit.outputs.shortsha }}
+          docker image push --all-tags nyamisty/darling
+      
+      - name: Push Docker to ghcr.io
+        run: |    
+          docker tag nyamisty/darling:latest ghcr.io/nyamisty/darling:latest
+          docker tag nyamisty/darling:latest ghcr.io/nyamisty/darling:${{ steps.darling-commit.outputs.shortsha }}
+          docker tag nyamisty/darling:latest ghcr.io/nyamisty/darling:${{ steps.timestamp.outputs.value }}-${{ steps.darling-commit.outputs.shortsha }}
+          docker image push --all-tags ghcr.io/nyamisty/darling
